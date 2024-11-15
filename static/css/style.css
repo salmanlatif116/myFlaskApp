@@ -1,0 +1,178 @@
+/* Global Styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Arial', sans-serif;
+    background-color: #f4f7fa;
+    color: #333;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+}
+
+.container {
+    max-width: 600px;
+    width: 100%;
+    padding: 20px;
+    background-color: #fff;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.card {
+    text-align: center;
+}
+
+h1 {
+    color: #4CAF50;
+    font-size: 2rem;
+    margin-bottom: 20px;
+}
+
+.description {
+    font-size: 1rem;
+    color: #555;
+    margin-bottom: 30px;
+}
+
+.form {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    align-items: center;
+}
+
+label {
+    font-weight: bold;
+    text-align: left;
+    width: 100%;
+    margin-bottom: 5px;
+    font-size: 1rem;
+}
+
+input[type="url"] {
+    padding: 10px;
+    font-size: 1rem;
+    width: 100%;
+    border: 2px solid #ddd;
+    border-radius: 5px;
+    transition: border-color 0.3s ease;
+}
+
+input[type="url"]:focus {
+    border-color: #4CAF50;
+    outline: none;
+}
+
+input[type="text"] {
+    padding: 10px;
+    font-size: 1rem;
+    width: 100%;
+    border: 2px solid #ddd;
+    border-radius: 5px;
+    transition: border-color 0.3s ease;
+}
+
+input[type="text"]:focus {
+    border-color: #4CAF50;
+    outline: none;
+}
+
+button[type="submit"] {
+    background-color: #4CAF50;
+    color: #fff;
+    padding: 10px 30px;
+    border: none;
+    border-radius: 5px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+button[type="submit"]:hover {
+    background-color: #45a049;
+}
+
+.result {
+    margin-top: 20px;
+    font-size: 1rem;
+    color: #333;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    background-color: #f9f9f9;
+}
+
+
+
+@media (max-width: 600px) {
+    .container {
+        padding: 15px;
+    }
+
+    h1 {
+        font-size: 1.5rem;
+    }
+}
+
+/* Style the checkbox container */
+.checkboxes {
+    margin-top: 20px;
+    padding: 10px;
+}
+
+/* Style for each checkbox label */
+.checkboxes label {
+    display: flex;
+    align-items: center; /* Center the checkbox and label text */
+    font-size: 16px;
+    margin-bottom: 15px; /* Add space between the checkboxes */
+    color: #333;
+    font-family: 'Arial', sans-serif;
+    padding-left: 30px; /* Add left padding to move the text away from the checkbox */
+    position: relative;
+    cursor: pointer; /* Change the cursor to a pointer when hovering */
+}
+
+
+/* Style the custom checkbox */
+.checkboxes input[type="checkbox"] + label::before {
+    content: '';
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    margin-right: 10px;
+    border: 2px solid #20a70e;
+    border-radius: 4px;
+    background-color: rgb(80, 143, 29);
+    vertical-align: middle;
+    transition: background-color 0.3s, border-color 0.3s;
+}
+
+/* Change background color when the checkbox is checked */
+.checkboxes input[type="checkbox"]:checked + label::before {
+    background-color: #51c224;
+    border-color: #3ba11b;
+}
+
+/* Add a checkmark inside the checkbox when checked */
+.checkboxes input[type="checkbox"]:checked + label::after {
+    content: '✔';
+    position: absolute;
+    top: 3px;
+    left: 5px;
+    color: rgb(65, 196, 26);
+    font-size: 16px;
+}
+
+/* Style the label text */
+.checkboxes input[type="checkbox"]:checked + label {
+    color: #20a126;
+    font-weight: bold;
+}
+

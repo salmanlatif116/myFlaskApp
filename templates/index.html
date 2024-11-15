@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Scraper</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h1>Email Scraper</h1>
+            <p class="description">Enter a URL to scrape emails from the page or a query for URLs.</p>
+            <form id="scrapeForm" class="form">
+                <label for="url">Enter URL:</label>
+                <input type="url" id="url" name="url" placeholder="e.g., https://example.com">
+
+                <label for="query">Enter Query:</label>
+                <input type="text" id="query" name="query" placeholder="e.g., Real-estate in 90001">
+
+                <div class="checkboxes">
+                    <label>
+                        <input type="checkbox" id="aboutContact" name="includeContact">
+                        <span style="padding-left: 10px;">Contact</span>
+                    </label>
+                    <label>
+                        <input type="checkbox" id="includeDetail" name="includeDetail">
+                        <span style="padding-left: 10px;">Detail</span>
+                    </label>
+                </div>
+
+                <button type="submit" class="btn">Scrape</button>
+            </form>
+            <div id="result" class="result"></div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html>

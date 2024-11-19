@@ -18,7 +18,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from urllib.parse import urljoin, urlparse
 from dotenv import load_dotenv
-load_dotenv() 
+from celery_config import celery_app
+
+
+load_dotenv()
 
 app = Flask(__name__)
 
@@ -33,7 +36,7 @@ app.config["MAIL_DEFAULT_SENDER"] = os.environ.get("EMAIL")
 
 mail = Mail(app)
 
-attachments = ["about_contact_emails.txt","detail_emails.txt","query_urls.txt"]
+
 # Configure Selenium ChromeDriver options
 def setup_driver():
     chrome_options = Options()
@@ -50,6 +53,7 @@ def setup_driver():
 
 
 # Function to scrape emails from page source
+@celery_app.task
 def scrape_emails(page_source):
     email_regex = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
     emails = re.findall(email_regex, page_source)
@@ -75,7 +79,8 @@ def scrape_emails(page_source):
 
 
 # Asynchronous function to extract data from a URL
-async def extract_data_from_all_urls_of_website(url, driver):
+@celery_app.task
+def extract_data_from_all_urls_of_website(url, driver):
     all_emails = []
     if not url.startswith("http"):
         url = "http://" + url
@@ -154,6 +159,7 @@ async def extract_data_from_all_urls_of_website(url, driver):
     return {"Emails": unique_emails}
 
 
+@celery_app.task
 async def extract_data_from_home_about_contact_page(url, driver):
     all_emails = []
     if not url.startswith("http"):
@@ -211,13 +217,18 @@ async def extract_data_from_home_about_contact_page(url, driver):
 
 
 # Function to send the scraped emails file as an attachment
-import os
+@celery_app.task
+async def send_email_with_attachment():
+    recipient = "salmanlatif@tekvix.com"
+    attachments = []
+    if os.path.exists("about_contact_emails.txt"):
+        attachments.append("about_contact_emails.txt")
 
-def send_email_with_attachment(recipient):
+    if os.path.exists("detail_emails.txt"):
+        attachments.append("detail_emails.txt")
+
     for attachment in attachments:
-        if attachment.endswith("query_urls.txt"):
-            subject = "Scraped URLs Against Query"
-        elif attachment.endswith("detail_emails.txt"):
+        if attachment.endswith("detail_emails.txt"):
             subject = "Scraped Detail Emails"
         elif attachment.endswith("about_contact_emails.txt"):
             subject = "Scraped About & Contact Emails"
@@ -226,46 +237,55 @@ def send_email_with_attachment(recipient):
             continue
         msg = Message(subject, recipients=[recipient])
         msg.body = "Please find the attached file with scraped emails."
-        
+
         if not os.path.exists(attachment):
             print(f"[WARNING] Attachment '{attachment}' does not exist. Skipping...")
             continue
 
         with app.open_resource(attachment) as fp:
             msg.attach(attachment, "text/plain", fp.read())
-        
+
         try:
             mail.send(msg)
-            print("[INFO] Email with attachment sent successfully!")  
+            print("[INFO] Email with attachment sent successfully!")
             os.remove(attachment)
-                
+
         except Exception as e:
             print(f"[ERROR] Failed to send email: {e}")
 
 
-
-
+@celery_app.task
 def load_google_maps(driver):
     print("[INFO] Loading Google Maps...")
     driver.get("https://www.google.com/maps")
-    WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.ID, 'searchboxinput')))
+    WebDriverWait(driver, 15).until(
+        EC.presence_of_element_located((By.ID, "searchboxinput"))
+    )
     print("[INFO] Google Maps loaded successfully.")
 
+
+@celery_app.task
 def search_query(driver, query):
     print(f"[INFO] Searching for query: {query}")
-    search_box = driver.find_element(By.ID, 'searchboxinput')
+    search_box = driver.find_element(By.ID, "searchboxinput")
     search_box.send_keys(query)
-    search_button = driver.find_element(By.ID, 'searchbox-searchbutton')
+    search_button = driver.find_element(By.ID, "searchbox-searchbutton")
     search_button.click()
-    
+
     try:
-        WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.CLASS_NAME, 'Nv2PK')))
+        WebDriverWait(driver, 30).until(
+            EC.presence_of_element_located((By.CLASS_NAME, "Nv2PK"))
+        )
         print(f"[INFO] Search results loaded for: {query}")
     except TimeoutException:
-        print(f"[ERROR] No results found for the query: {query}. Please try a different query.")
+        print(
+            f"[ERROR] No results found for the query: {query}. Please try a different query."
+        )
         driver.quit()
-        return []
+        return
 
+
+@celery_app.task
 def scroll_and_collect_listings(driver, wait_time=15):
     listings = []
     previous_listing_count = 0
@@ -275,7 +295,7 @@ def scroll_and_collect_listings(driver, wait_time=15):
     while True:
         driver.execute_script("window.scrollBy(0, document.body.scrollHeight);")
         time.sleep(wait_time)
-        new_listings = driver.find_elements(By.CLASS_NAME, 'Nv2PK')
+        new_listings = driver.find_elements(By.CLASS_NAME, "Nv2PK")
 
         if new_listings:
             driver.execute_script("arguments[0].scrollIntoView();", new_listings[-1])
@@ -295,112 +315,181 @@ def scroll_and_collect_listings(driver, wait_time=15):
     return new_listings
 
 
-
-def extract_listing_data(listing, index, driver):
+@celery_app.task
+async def extract_listing_data_for_about_contact(listing, index, driver):
     try:
         all_urls = []
         print(f"[INFO] Extracting data for listing {index + 1}")
-        # name_element = listing.find_element(By.CLASS_NAME, 'qBF1Pd')
-        # name = name_element.text if name_element else 'N/A'
-
-        # try:
-        #     address_element = listing.find_element(By.CSS_SELECTOR, 'div.W4Efsd > div.W4Efsd')
-        #     address_spans = address_element.find_elements(By.CSS_SELECTOR, 'span')
-        #     address = address_spans[2].text if len(address_spans) > 2 else 'N/A'
-        #     address = address.replace('\u00b7', '').strip() 
-        # except NoSuchElementException:
-        #     address = 'N/A'
-
-        # try:
-        #     phone_element = listing.find_element(By.CLASS_NAME, 'UsdlK')
-        #     phone = phone_element.text if phone_element else 'N/A'
-        # except NoSuchElementException:
-        #     phone = 'N/A'
-
+        
         try:
-            website_element = listing.find_element(By.CSS_SELECTOR, 'a.lcr4fd.S9kvJb')
-            website_url = website_element.get_attribute('href') if website_element else 'N/A'
-            if website_url:
-                all_urls.append(website_url)
-
-            with open("query_urls.txt", "a") as file:
-                for url in all_urls:
-                    file.write(url + "\n")
-
-            return all_urls
+            website_element = listing.find_element(By.CSS_SELECTOR, "a.lcr4fd.S9kvJb")
+            website_url = (
+                website_element.get_attribute("href") if website_element else "N/A"
+            )
         except NoSuchElementException:
-            website_url = 'N/A'
+            website_url = "N/A"
 
-        # all_emails = []
-        # if website_url != 'N/A':
-        #     try:
-        #         print(f"[INFO] Visiting website: {website_url}")
-        #         original_window = driver.current_window_handle
-        #         driver.execute_script("window.open('');")  # Open a new tab for email scraping
-        #         driver.switch_to.window(driver.window_handles[1])  # Switch to the new tab
-        #         driver.get(website_url)
+        all_emails = []
+        if website_url != 'N/A':
+            try:
+                print(f"[INFO] Visiting website: {website_url}")
+                original_window = driver.current_window_handle
+                driver.execute_script("window.open('');")
+                driver.switch_to.window(driver.window_handles[1])
+                driver.get(website_url)
 
-        #         emails = scrape_emails(driver.page_source)
-        #         all_emails.extend(emails)
+                emails = scrape_emails(driver.page_source)
+                all_emails.extend(emails)
 
-        #         # Look for 'About Us' page
-        #         print("[INFO] Looking for 'About Us' page for email...")
-        #         try:
-        #             about_us_link = driver.find_element(By.XPATH, "//a[contains(text(), 'About') or contains(text(), 'About Us')]")
-        #             about_us_url = about_us_link.get_attribute('href')
-        #             if about_us_url:
-        #                 driver.get(about_us_url)
-        #                 emails = scrape_emails(driver.page_source)
-        #                 all_emails.extend(emails)
-        #         except (NoSuchElementException, TimeoutException):
-        #             print("[INFO] 'About Us' page not found.")
-                
-        #         # Look for 'Contact Us' page
-        #         print("[INFO] Looking for 'Contact Us' page for email...")
-        #         try:
-        #             contact_us_link = driver.find_element(By.XPATH, "//a[contains(text(), 'Contact') or contains(text(), 'Contact Us')]")
-        #             contact_us_url = contact_us_link.get_attribute('href')
-        #             if contact_us_url:
-        #                 driver.get(contact_us_url)
-        #                 emails = scrape_emails(driver.page_source)
-        #                 all_emails.extend(emails)
-        #         except (NoSuchElementException, TimeoutException):
-        #             print("[INFO] 'Contact Us' page not found.")
+                # Look for 'About Us' page
+                print("[INFO] Looking for 'About Us' page for email...")
+                try:
+                    about_us_link = driver.find_element(By.XPATH, "//a[contains(text(), 'About') or contains(text(), 'About Us')]")
+                    about_us_url = about_us_link.get_attribute('href')
+                    if about_us_url:
+                        driver.get(about_us_url)
+                        emails = scrape_emails(driver.page_source)
+                        all_emails.extend(emails)
+                except (NoSuchElementException, TimeoutException):
+                    print("[INFO] 'About Us' page not found.")
 
+                # Look for 'Contact Us' page
+                print("[INFO] Looking for 'Contact Us' page for email...")
+                try:
+                    contact_us_link = driver.find_element(By.XPATH, "//a[contains(text(), 'Contact') or contains(text(), 'Contact Us')]")
+                    contact_us_url = contact_us_link.get_attribute('href')
+                    if contact_us_url:
+                        driver.get(contact_us_url)
+                        emails = scrape_emails(driver.page_source)
+                        all_emails.extend(emails)
+                except (NoSuchElementException, TimeoutException):
+                    print("[INFO] 'Contact Us' page not found.")
 
-        #     except (TimeoutException, NoSuchElementException, StaleElementReferenceException, Exception) as e:
-        #         print(f"[ERROR] Failed to load the website {website_url}: {e}")
-        #         all_emails = []  
-        #     finally:
-        #         driver.close()  # Close the tab with the website
-        #         driver.switch_to.window(original_window)  # Switch back to the original tab
+            except Exception as e:
+                print(f"[ERROR] Failed to load the website {website_url}: {e}")
+                all_emails = []
+            finally:
+                driver.close()
+                driver.switch_to.window(original_window)
 
-        # unique_emails = list(set(all_emails))
-        # with open("g_map_about_contact_emails.txt", "a") as file:
-        #     for email in unique_emails:
-        #         file.write(email + "\n")
-        # # print(f"[INFO] Data extracted for listing {index + 1}: Name={name}, Address={address}, Phone={phone}, Website={website_url}, Emails={unique_emails}")
-        # return {
-        #     'ID': index + 1,
-        #     'Name': name,
-        #     'Address': address,
-        #     'Phone': phone,
-        #     'Website': website_url,
-        #     'Emails': unique_emails
-        # }
+        unique_emails = list(set(all_emails))
+        with open("about_contact_emails.txt", "a") as file:
+            for email in unique_emails:
+                file.write(email + "\n")
+
+        return {"Emails": unique_emails}
     except StaleElementReferenceException:
-        print(f"[ERROR] Stale element reference encountered while processing listing {index + 1}. Skipping this listing.")
+        print(
+            f"[ERROR] Stale element reference encountered while processing listing {index + 1}. Skipping this listing."
+        )
         return None
     except Exception as e:
-        print(f"[ERROR] An error occurred while extracting data from listing {index + 1}: {e}")
+        print(
+            f"[ERROR] An error occurred while extracting data from listing {index + 1}: {e}"
+        )
+        return None
+
+
+
+@celery_app.task
+async def extract_listing_data_for_all_urls(listing, index, driver):
+    try:
+        print(f"[INFO] Extracting data for listing {index + 1}")
+        all_emails = []
+
+        # Extract website URL
+        try:
+            website_element = listing.find_element(By.CSS_SELECTOR, "a.lcr4fd.S9kvJb")
+            website_url = (
+                website_element.get_attribute("href") if website_element else "N/A"
+            )
+        except NoSuchElementException:
+            website_url = "N/A"
+
+        if website_url != "N/A":
+            try:
+                print(f"[INFO] Visiting website: {website_url}")
+                original_window = driver.current_window_handle
+                driver.execute_script("window.open('');")  # Open a new tab for email scraping
+                driver.switch_to.window(driver.window_handles[1])  # Switch to the new tab
+                driver.get(website_url)
+
+                # Scrape emails from the website's page source
+                emails = scrape_emails(driver.page_source)
+                all_emails.extend(emails)
+
+                # Extract all links from the website
+                hrefs = set()
+                links = driver.find_elements(By.TAG_NAME, "a")
+                for link in links:
+                    href = link.get_attribute("href")
+                    if href:
+                        href = urljoin(website_url, href)
+                        href = urlparse(href)._replace(fragment="").geturl()
+                        hrefs.add(href)
+
+                print("[INFO] Extracting all possible emails from linked pages.")
+                visited_links = set()
+
+                # Visit each link to scrape emails
+                for href in hrefs:
+                    if (
+                        href
+                        and href not in visited_links
+                        and not href.endswith((".mp4", ".avi", ".mov", ".wmv", ".flv"))
+                    ):
+                        visited_links.add(href)
+                        retries = 3  # Retry mechanism for visiting links
+
+                        while retries > 0:
+                            try:
+                                driver.get(href)
+                                WebDriverWait(driver, 10).until(
+                                    EC.presence_of_element_located((By.TAG_NAME, "body"))
+                                )
+                                emails = scrape_emails(driver.page_source)
+                                all_emails.extend(emails)
+                                break
+                            except StaleElementReferenceException:
+                                retries -= 1
+                            except (NoSuchElementException, TimeoutException):
+                                break
+                            except Exception as e:
+                                print(f"[ERROR] Unexpected error for {href}: {e}")
+                                break
+
+            except Exception as e:
+                print(f"[ERROR] Failed to load the website {website_url}: {e}")
+            finally:
+                driver.close()  # Close the tab with the website
+                driver.switch_to.window(original_window)  # Switch back to the original tab
+
+        # Save unique emails to file
+        unique_emails = list(set(all_emails))
+        with open("detail_emails.txt", "a") as file:
+            for email in unique_emails:
+                file.write(email + "\n")
+
+        return {"Emails": unique_emails}
+
+    except StaleElementReferenceException:
+        print(
+            f"[ERROR] Stale element reference encountered while processing listing {index + 1}. Skipping this listing."
+        )
+        return None
+    except Exception as e:
+        print(
+            f"[ERROR] An error occurred while extracting data from listing {index + 1}: {e}"
+        )
         return None
 
 
 """API Endpoint Defination"""
-@app.route('/api/v1/scrape/google-map/', methods=['POST'])
-def scrape_google_map():
+@celery_app.task
+@app.route("/api/v1/scrape/google-map-about-contact/", methods=["POST"])
+async def scrape_google_map():
     data = request.json
-    query = data.get('query')
+    query = data.get("query")
 
     if not query:
         return jsonify({"error": "Query parameter is required"}), 400
@@ -414,52 +503,94 @@ def scrape_google_map():
 
         for index, listing in enumerate(listings):
             try:
-                data = extract_listing_data(listing, index, driver)
+                data = await extract_listing_data_for_about_contact(listing, index, driver)
                 if data:
                     listing_data_list.append(data)
             except Exception as e:
-                print(f"[ERROR] An error occurred while processing listing {index}: {e}")
+                print(
+                    f"[ERROR] An error occurred while processing listing {index}: {e}"
+                )
+
+        await send_email_with_attachment()
+        return jsonify(listing_data_list), 200
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        return jsonify({"error": str(e)}), 500
+    
+
+
+
+@celery_app.task
+@app.route("/api/v1/scrape/google-map-all-urls/", methods=["POST"])
+async def scrape_google_map_all_urls():
+    data = request.json
+    query = data.get("query")
+
+    if not query:
+        return jsonify({"error": "Query parameter is required"}), 400
+
+    driver = setup_driver()
+    try:
+        load_google_maps(driver)
+        search_query(driver, query)
+        listings = scroll_and_collect_listings(driver)
+        listing_data_list = []
+
+        for index, listing in enumerate(listings):
+            try:
+                data = await extract_listing_data_for_all_urls(listing, index, driver)
+                if data:
+                    listing_data_list.append(data)
+            except Exception as e:
+                print(
+                    f"[ERROR] An error occurred while processing listing {index}: {e}"
+                )
 
         json_data = json.dumps(listing_data_list, indent=4)
+        await send_email_with_attachment()
         return jsonify(listing_data_list)
-    finally:
-        driver.quit()
-
+    except Exception as e:
+        print(e)
+        return None
+  
 
 # Flask route to scrape emails and send the file
+@celery_app.task
 @app.route("/api/v1/url/scrape-about-contact-and-send-emails/", methods=["POST"])
 async def scrape_and_send_about_contact():
     data = request.json
-    url = data.get("url")
-    recipient_email = os.environ.get("RECIPIENT_EMAIL")
-    if not url or not recipient_email:
-        return jsonify({"error": "Please provide a valid URL and email address"}), 400
+    url = data.get('url')
+    if not url:
+        return jsonify({"error": "Please provide a valid URL"}), 400
 
     driver = setup_driver()
     try:
         result = await extract_data_from_home_about_contact_page(url, driver)
-
+        if result:
+            print(f"results ====> {result}")
+            await send_email_with_attachment()
         return jsonify(result)
-    finally:
-        print("[INFO] Quitting WebDriver to close all connections...")
-        driver.quit()
+    except Exception as e:
+        print(e)
+        
 
+
+@celery_app.task
 @app.route("/api/v1/url/scrape-all-and-send-emails/", methods=["POST"])
 async def scrape_and_send_all():
     data = request.json
-    url = data.get("url")
-    recipient_email = os.environ.get("RECIPIENT_EMAIL")
-    if not url or not recipient_email:
-        return jsonify({"error": "Please provide a valid URL and email address"}), 400
+    url = data.get('url')
+    if not url:
+        return jsonify({"error": "Please provide a valid URL"}), 400
 
     driver = setup_driver()
     try:
         result = await extract_data_from_all_urls_of_website(url, driver)
-
+        if result:
+            await send_email_with_attachment()
         return jsonify(result)
-    finally:
-        print("[INFO] Quitting WebDriver to close all connections...")
-        driver.quit()
+    except Exception as e:
+        print(e)
 
 
 @app.route("/")
@@ -468,6 +599,4 @@ def index():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host='0.0.0.0')
-
-
+    app.run(debug=True, host="0.0.0.0")
